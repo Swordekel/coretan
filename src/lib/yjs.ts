@@ -1,5 +1,5 @@
 import * as Y from 'yjs'
-import { WebrtcProvider } from 'y-webrtc'
+import { WebsocketProvider } from 'y-websocket'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import type { Stroke } from '../types'
 
@@ -7,45 +7,33 @@ export interface YBoard {
   doc: Y.Doc
   strokes: Y.Array<Stroke>
   settings: Y.Map<string>
-  provider: WebrtcProvider
+  provider: WebsocketProvider
   persistence: IndexeddbPersistence
   undoManager: Y.UndoManager
   destroy: () => void
 }
 
-const SIGNALING_SERVERS = [
-  'wss://signaling.yjs.dev',
-  'wss://y-webrtc-signaling-eu.fly.dev',
-  'wss://y-webrtc-signaling-us.fly.dev',
-]
-
-// STUN servers untuk NAT traversal — semua free & always-on
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-]
+// WebSocket relay host — Render free tier hosted y-websocket-server
+// Format: wss://coretan-relay.onrender.com (sesuaikan setelah deploy)
+const WS_URL =
+  (import.meta.env.VITE_WS_URL as string | undefined) ||
+  'wss://coretan-relay.onrender.com'
 
 export function createBoard(roomId: string): YBoard {
   const doc = new Y.Doc()
   const strokes = doc.getArray<Stroke>('strokes')
   const settings = doc.getMap<string>('settings')
 
-  // Persist locally so refresh = same content
+  // Persist lokal supaya refresh = sama
   const persistence = new IndexeddbPersistence(`coretan-${roomId}`, doc)
 
-  // P2P sync via WebRTC
-  const provider = new WebrtcProvider(`coretan-${roomId}`, doc, {
-    signaling: SIGNALING_SERVERS,
-    maxConns: 20,
-    filterBcConns: false, // allow BroadcastChannel (sama browser tabs)
-    peerOpts: {
-      config: {
-        iceServers: ICE_SERVERS,
-      },
-    },
-  })
+  // WebSocket sync via Render-hosted y-websocket-server
+  const provider = new WebsocketProvider(
+    WS_URL,
+    `coretan-${roomId}`,
+    doc,
+    { connect: true },
+  )
 
   const undoManager = new Y.UndoManager(strokes, {
     captureTimeout: 300,
@@ -67,19 +55,22 @@ export function createBoard(roomId: string): YBoard {
   }
 }
 
-/** Hitung jumlah peer yang aktif terhubung via WebRTC + BroadcastChannel */
+/** Hitung jumlah user lain yang aktif terhubung */
 export function getPeerCount(board: YBoard): number {
-  const room = (board.provider as unknown as {
-    room?: { webrtcConns?: Map<string, unknown>; bcConns?: Set<string> }
-  }).room
-  if (!room) return 0
-  const rtc = room.webrtcConns?.size ?? 0
-  const bc = room.bcConns?.size ?? 0
-  return rtc + bc
+  const awareness = board.provider.awareness
+  let count = 0
+  awareness.getStates().forEach((_state, clientId) => {
+    if (clientId !== awareness.clientID) count++
+  })
+  return count
+}
+
+/** Status koneksi ke server */
+export function isConnected(board: YBoard): boolean {
+  return board.provider.wsconnected
 }
 
 export function generateRoomId(): string {
-  // Format: 3-3-3 kata coffee + angka kecil → mudah disebut & dibaca
   const adjectives = ['kopi', 'susu', 'gula', 'krim', 'madu', 'arang']
   const nouns = ['biji', 'bubuk', 'rasa', 'tetes', 'aroma', 'aren']
   const a = adjectives[Math.floor(Math.random() * adjectives.length)]

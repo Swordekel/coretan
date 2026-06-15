@@ -11,7 +11,7 @@ import {
   Sun,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { getPeerCount, type YBoard } from '../lib/yjs'
+import { getPeerCount, isConnected, type YBoard } from '../lib/yjs'
 import type { RemoteUser } from './PresenceLayer'
 import { useUserStore } from '../store/useUserStore'
 import { useThemeStore } from '../store/useThemeStore'
@@ -62,6 +62,7 @@ export function BoardHeader({
   const [showBgPicker, setShowBgPicker] = useState(false)
   const [bgColor, setBgColor] = useState<string | null>(null)
   const [peerCount, setPeerCount] = useState(0)
+  const [wsConnected, setWsConnected] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const bgInputRef = useRef<HTMLInputElement>(null)
 
@@ -69,6 +70,7 @@ export function BoardHeader({
     const startTime = Date.now()
     function update() {
       setPeerCount(getPeerCount(board))
+      setWsConnected(isConnected(board))
       setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }
     update()
@@ -76,13 +78,13 @@ export function BoardHeader({
     return () => clearInterval(id)
   }, [board])
 
-  // Status semantics:
-  // - peerCount > 0  → terhubung ke peer lain (sync OK)
-  // - peerCount = 0 dalam 10s pertama → "menghubungkan"
-  // - peerCount = 0 setelah 10s → "sendiri di papan" (belum ada user lain JOIN)
-  const isConnecting = peerCount === 0 && elapsed < 10
-  const isAlone = peerCount === 0 && elapsed >= 10
-  const isConnected = peerCount > 0
+  // Semantik baru:
+  // - !wsConnected → "menghubungkan ke server" / "offline"
+  // - wsConnected + peerCount > 0 → sync OK ke X user lain
+  // - wsConnected + peerCount = 0 → sendirian di papan
+  const isConnecting = !wsConnected && elapsed < 8
+  const isAlone = wsConnected && peerCount === 0
+  const isSyncing = wsConnected && peerCount > 0
 
   useEffect(() => {
     function updateBg() {
@@ -173,11 +175,13 @@ export function BoardHeader({
           <span
             className="w-1.5 h-1.5 rounded-full"
             style={{
-              background: isConnected
+              background: isSyncing
                 ? '#10b981'
-                : isConnecting
-                  ? '#f59e0b'
-                  : '#a89580',
+                : isAlone
+                  ? '#10b981'
+                  : isConnecting
+                    ? '#f59e0b'
+                    : '#ef4444',
               animation: isConnecting ? 'pulse-ring 1.4s infinite' : 'none',
             }}
           />
@@ -185,11 +189,13 @@ export function BoardHeader({
             className="text-muted-foreground tnum"
             style={{ fontFamily: 'var(--font-mono)' }}
             title={
-              isConnected
-                ? `${peerCount} peer connected`
+              isSyncing
+                ? `${peerCount} user lain terhubung — sync aktif`
                 : isAlone
-                  ? 'Belum ada user lain join — share link agar mereka bisa connect'
-                  : 'Mencari peer...'
+                  ? 'Terhubung ke server, belum ada user lain join'
+                  : isConnecting
+                    ? 'Menghubungkan ke server sync...'
+                    : 'Offline — server sync tidak tercapai'
             }
           >
             {roomId}
@@ -197,18 +203,22 @@ export function BoardHeader({
           <span
             className="text-[9px] font-semibold"
             style={{
-              color: isConnected
+              color: isSyncing
                 ? '#10b981'
-                : isConnecting
-                  ? 'var(--accent-primary)'
-                  : 'var(--text-muted)',
+                : isAlone
+                  ? 'var(--text-muted)'
+                  : isConnecting
+                    ? 'var(--accent-primary)'
+                    : '#ef4444',
             }}
           >
-            {isConnected
-              ? `· ${peerCount} terhubung`
-              : isConnecting
-                ? '· mencari peer...'
-                : '· sendirian — share link'}
+            {isSyncing
+              ? `· ${peerCount} user terhubung`
+              : isAlone
+                ? '· sendirian — share link'
+                : isConnecting
+                  ? '· menghubungkan...'
+                  : '· offline'}
           </span>
         </div>
       </div>
