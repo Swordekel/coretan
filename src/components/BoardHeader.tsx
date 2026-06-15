@@ -11,7 +11,7 @@ import {
   Sun,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import type { YBoard } from '../lib/yjs'
+import { getPeerCount, type YBoard } from '../lib/yjs'
 import type { RemoteUser } from './PresenceLayer'
 import { useUserStore } from '../store/useUserStore'
 import { useThemeStore } from '../store/useThemeStore'
@@ -61,26 +61,28 @@ export function BoardHeader({
   const [exporting, setExporting] = useState(false)
   const [showBgPicker, setShowBgPicker] = useState(false)
   const [bgColor, setBgColor] = useState<string | null>(null)
-  const [connStatus, setConnStatus] = useState<'connecting' | 'connected' | 'offline'>(
-    'connecting',
-  )
+  const [peerCount, setPeerCount] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
   const bgInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    const startTime = Date.now()
     function update() {
-      if (board.provider.connected) setConnStatus('connected')
-      else setConnStatus('offline')
+      setPeerCount(getPeerCount(board))
+      setElapsed(Math.floor((Date.now() - startTime) / 1000))
     }
     update()
-    board.provider.on('status', update)
-    board.provider.on('synced', update)
-    const t = setTimeout(update, 3000)
-    return () => {
-      board.provider.off('status', update)
-      board.provider.off('synced', update)
-      clearTimeout(t)
-    }
+    const id = setInterval(update, 1500)
+    return () => clearInterval(id)
   }, [board])
+
+  // Status semantics:
+  // - peerCount > 0  → terhubung ke peer lain (sync OK)
+  // - peerCount = 0 dalam 10s pertama → "menghubungkan"
+  // - peerCount = 0 setelah 10s → "sendiri di papan" (belum ada user lain JOIN)
+  const isConnecting = peerCount === 0 && elapsed < 10
+  const isAlone = peerCount === 0 && elapsed >= 10
+  const isConnected = peerCount > 0
 
   useEffect(() => {
     function updateBg() {
@@ -171,19 +173,42 @@ export function BoardHeader({
           <span
             className="w-1.5 h-1.5 rounded-full"
             style={{
-              background:
-                connStatus === 'connected'
-                  ? '#10b981'
-                  : connStatus === 'connecting'
-                    ? '#f59e0b'
-                    : '#a89580',
+              background: isConnected
+                ? '#10b981'
+                : isConnecting
+                  ? '#f59e0b'
+                  : '#a89580',
+              animation: isConnecting ? 'pulse-ring 1.4s infinite' : 'none',
             }}
           />
           <span
             className="text-muted-foreground tnum"
             style={{ fontFamily: 'var(--font-mono)' }}
+            title={
+              isConnected
+                ? `${peerCount} peer connected`
+                : isAlone
+                  ? 'Belum ada user lain join — share link agar mereka bisa connect'
+                  : 'Mencari peer...'
+            }
           >
             {roomId}
+          </span>
+          <span
+            className="text-[9px] font-semibold"
+            style={{
+              color: isConnected
+                ? '#10b981'
+                : isConnecting
+                  ? 'var(--accent-primary)'
+                  : 'var(--text-muted)',
+            }}
+          >
+            {isConnected
+              ? `· ${peerCount} terhubung`
+              : isConnecting
+                ? '· mencari peer...'
+                : '· sendirian — share link'}
           </span>
         </div>
       </div>

@@ -16,6 +16,15 @@ export interface YBoard {
 const SIGNALING_SERVERS = [
   'wss://signaling.yjs.dev',
   'wss://y-webrtc-signaling-eu.fly.dev',
+  'wss://y-webrtc-signaling-us.fly.dev',
+]
+
+// STUN servers untuk NAT traversal — semua free & always-on
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
 ]
 
 export function createBoard(roomId: string): YBoard {
@@ -30,7 +39,12 @@ export function createBoard(roomId: string): YBoard {
   const provider = new WebrtcProvider(`coretan-${roomId}`, doc, {
     signaling: SIGNALING_SERVERS,
     maxConns: 20,
-    filterBcConns: true,
+    filterBcConns: false, // allow BroadcastChannel (sama browser tabs)
+    peerOpts: {
+      config: {
+        iceServers: ICE_SERVERS,
+      },
+    },
   })
 
   const undoManager = new Y.UndoManager(strokes, {
@@ -51,6 +65,17 @@ export function createBoard(roomId: string): YBoard {
       doc.destroy()
     },
   }
+}
+
+/** Hitung jumlah peer yang aktif terhubung via WebRTC + BroadcastChannel */
+export function getPeerCount(board: YBoard): number {
+  const room = (board.provider as unknown as {
+    room?: { webrtcConns?: Map<string, unknown>; bcConns?: Set<string> }
+  }).room
+  if (!room) return 0
+  const rtc = room.webrtcConns?.size ?? 0
+  const bc = room.bcConns?.size ?? 0
+  return rtc + bc
 }
 
 export function generateRoomId(): string {
