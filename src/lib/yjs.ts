@@ -13,11 +13,11 @@ export interface YBoard {
   destroy: () => void
 }
 
-// WebSocket relay host — Render free tier hosted y-websocket-server
-// Format: wss://coretan-relay.onrender.com (sesuaikan setelah deploy)
+// WebSocket relay host — Cloudflare Workers + Durable Objects
+// Repo: https://github.com/Swordekel/coretan-relay
 const WS_URL =
   (import.meta.env.VITE_WS_URL as string | undefined) ||
-  'wss://coretan-relay.onrender.com'
+  'wss://coretan-relay.swordekel.workers.dev'
 
 export function createBoard(roomId: string): YBoard {
   const doc = new Y.Doc()
